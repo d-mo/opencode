@@ -40,7 +40,9 @@ it("offers Snappy, Smooth and Calm for every spring, with one Global card and on
     [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Smooth"),
   )
 
-  const labels = [...container.querySelectorAll("button")].map((button) => button.textContent?.trim())
+  const labels = [...container.querySelectorAll("button")].flatMap((button) =>
+    button.closest("[hidden]") === null ? [button.textContent?.trim()] : [],
+  )
 
   expect(labels).toContain("Snappy")
   expect(labels).toContain("Calm")

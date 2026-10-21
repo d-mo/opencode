@@ -3,12 +3,14 @@ import { motionPresets, motionTuning, type MotionKnob, type MotionPreset } from 
 
 const global = "Global"
 
+const experiments = "Experiments"
+
 /**
- * Mounts the Motion workspace into `container`: a tab per surface under the shipped values and the Snappy, Smooth and
- * Calm presets for every spring at once. Each tab shows one Global card (speed, slow motion and other settings every surface reads), then one
- * card for its surface: its springs and knobs, with its replay buttons under a Replay sub-heading. knobs loads on first
- * mount, so importing this module costs nothing until then. Works anywhere a surface registered its knobs, including
- * Storybook stories. Returns its removal.
+ * Mounts the Knobs workspace into `container`: a Global card (speed, slow motion and other settings every surface reads)
+ * on top, then the surfaces below it, one tab each (none when there is only one), under the shipped values and the
+ * Snappy, Smooth and Calm presets for every spring at once. Each surface is one card: its springs and knobs, with its
+ * replay buttons under a Replay sub-heading. knobs loads on first mount, so importing this module costs nothing until
+ * then. Works anywhere a surface registered its knobs, including Storybook stories. Returns its removal.
  */
 export function mountMotionPanel(
   container: HTMLElement,
@@ -28,8 +30,12 @@ export function mountMotionPanel(
   async function start() {
     const { action, choice, defineControls, knob, spring, toggle } = await import("knobs")
 
-    const field = (item: MotionKnob) => {
-      const meta = { label: item.label, group: item.group, tab: item.group === global ? undefined : item.group }
+    const field = (item: MotionKnob, tabbed = false) => {
+      const meta = {
+        label: item.label,
+        group: item.group,
+        tab: tabbed && item.group !== global ? item.group : undefined,
+      }
 
       if (item.kind === "spring") return spring(item.initial, meta)
 
@@ -71,13 +77,38 @@ export function mountMotionPanel(
       const mounted = identity()
       const springs = list.flatMap((item) => (item.kind === "spring" ? [item] : []))
       const preset = (id: MotionPreset) => Object.fromEntries(springs.map((item) => [item.id, item.presets[id]]))
-      const sections = [...new Set([...list, ...actions].map((item) => item.group))].filter((group) => group !== global)
+
+      const sections = [...new Set([...list, ...actions].map((item) => item.group))]
+        .filter((group) => group !== global)
+        // Experiments come and go, so they sit last.
+        .toSorted((a, b) => Number(a === experiments) - Number(b === experiments))
+
+      // A lone section needs no tab strip.
+      const tabbed = sections.length > 1
+      const globals = list.filter((item) => item.group === global)
+
+      // Global sits in its own panel above the sections, so it reads as applying to all of them.
+      const top = defineControls(
+        "opencode-motion-global",
+        Object.fromEntries(globals.map((item) => [item.id, field(item)])),
+        {
+          enabled: true,
+          ship: () => import("knobs/panel"),
+          persist: "none",
+          onChange: (patch) =>
+            globals.forEach((item) => {
+              // SAFETY: each field was made from its knob above, so its value is that knob's kind.
+              const value = patch[item.id] as MotionKnob["value"] | undefined
+
+              if (value !== undefined) apply(item, value)
+            }),
+        },
+      )
 
       const controls = defineControls(
         "opencode-motion",
         {
-          // Global first, then each section's knobs and its replay buttons together, so each shows as one card.
-          ...Object.fromEntries(list.filter((item) => item.group === global).map((item) => [item.id, field(item)])),
+          // Each section's knobs and its replay buttons together, so each shows as one card.
           ...Object.fromEntries(
             [...list, ...actions]
               .filter((item) => item.group !== global)
@@ -86,9 +117,14 @@ export function mountMotionPanel(
                 "run" in item
                   ? [
                       `action.${item.id}`,
-                      action(item.label, { group: item.group, tab: item.group, subsection: "Replay", run: item.run }),
+                      action(item.label, {
+                        group: item.group,
+                        tab: tabbed ? item.group : undefined,
+                        subsection: "Replay",
+                        run: item.run,
+                      }),
                     ]
-                  : [item.id, field(item)],
+                  : [item.id, field(item, tabbed)],
               ),
           ),
         },
@@ -106,22 +142,38 @@ export function mountMotionPanel(
               // SAFETY: each field was made from its knob above, so its value is that knob's kind.
               const value = patch[item.id] as MotionKnob["value"] | undefined
 
-              if (value !== undefined) apply(item, value)
+              if (value !== undefined && item.group !== global) apply(item, value)
             }),
         },
       )
 
-      const sync = () => controls.sync(Object.fromEntries(list.map((item) => [item.id, item.value])))
-      sync()
+      const sync = () => {
+        top.sync(Object.fromEntries(globals.map((item) => [item.id, item.value])))
+        controls.sync(
+          Object.fromEntries(list.filter((item) => item.group !== global).map((item) => [item.id, item.value])),
+        )
+      }
 
-      const stopPanel = controls.mount(container, {
+      sync()
+      const upper = container.appendChild(document.createElement("div"))
+      const lower = container.appendChild(document.createElement("div"))
+
+      // The debug bar shows and hides this panel, and `s` jumps only with focus inside it, so the app keeps its keys.
+      const keys = { toggleKey: false, hints: "panel" } as const
+
+      const stopTop = top.mount(upper, {
         theme: "auto",
         title: options.title ?? "Knobs",
         onClose: options.onClose,
-        // The debug bar shows and hides this panel, and `s` jumps only with focus inside it, so the app keeps its keys.
-        toggleKey: false,
-        hints: "panel",
-        tabs: sections,
+        variants: false,
+        ...keys,
+      })
+
+      const stopPanel = controls.mount(lower, {
+        theme: "auto",
+        title: false,
+        ...keys,
+        tabs: tabbed ? sections : undefined,
         tab: section,
         onTab: (id) => (section = id),
       })
@@ -134,7 +186,10 @@ export function mountMotionPanel(
 
       unmount = () => {
         stopWatch()
+        stopTop()
         stopPanel()
+        upper.remove()
+        lower.remove()
       }
     }
 
