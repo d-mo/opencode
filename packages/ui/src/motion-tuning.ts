@@ -9,6 +9,8 @@ type Knob<Kind extends string, Value> = {
   id: string
   label: string
   group: string
+  /** Shown only while this holds, e.g. the controls of the option a choice selects. */
+  when?: () => boolean
   initial: Value
   value: Value
 }
@@ -30,7 +32,7 @@ export type MotionKnob =
 
 export type MotionAction = { id: string; label: string; group: string; run: () => void }
 
-type Meta = { label: string; group: string }
+type Meta = { label: string; group: string; when?: () => boolean }
 
 // Bumped when knobs are merged or renamed, so values saved for the old ones are dropped.
 const key = "opencode.motion.v2"
@@ -54,6 +56,7 @@ export const motionTuning = {
       id,
       label: meta.label,
       group: meta.group,
+      when: meta.when,
       initial,
       value: { duration: number(`${id}.duration`, initial.duration), bounce: number(`${id}.bounce`, initial.bounce) },
       presets: meta.presets,
@@ -71,6 +74,7 @@ export const motionTuning = {
       id,
       label: meta.label,
       group: meta.group,
+      when: meta.when,
       initial: meta.value,
       // SAFETY: mapping the four indices of a Bezier yields four numbers.
       value: [0, 1, 2, 3].map((index) => number(`${id}.${index}`, meta.value[index])) as Bezier,
@@ -84,6 +88,7 @@ export const motionTuning = {
       id,
       label: meta.label,
       group: meta.group,
+      when: meta.when,
       initial: meta.value,
       value: number(id, meta.value ? 1 : 0) === 1,
     })
@@ -100,6 +105,7 @@ export const motionTuning = {
       id,
       label: meta.label,
       group: meta.group,
+      when: meta.when,
       initial: meta.value,
       value: options[number(id, options.indexOf(meta.value))] ?? meta.value,
       options,
@@ -122,6 +128,7 @@ export const motionTuning = {
       id,
       label: meta.label,
       group: meta.group,
+      when: meta.when,
       initial: meta.value,
       value: number(id, meta.value),
       min: meta.min,

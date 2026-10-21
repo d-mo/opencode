@@ -9,10 +9,18 @@ const [flights, setFlights] = createSignal(0)
 
 export const panelsMoving = () => flights() > 0
 
+const style = motionTuning.choice("sidebars.style", {
+  label: "Motion",
+  group,
+  value: "spring",
+  labels: { spring: "Spring", low: "Low movement", instant: "Instant" },
+})
+
 // The left sidebar and the side panel share one spring, so they move as one system.
 const spring = motionTuning.spring("sidebars", {
   label: "Spring",
   group,
+  when: () => style() === "spring",
   shipped: "smooth",
   presets: {
     snappy: { duration: 0.2, bounce: 0 },
@@ -21,18 +29,15 @@ const spring = motionTuning.spring("sidebars", {
   },
 })
 
-const style = motionTuning.choice("sidebars.style", {
-  label: "Motion",
-  group,
-  value: "spring",
-  labels: { spring: "Spring", low: "Low movement", instant: "Instant" },
-})
+// Low movement: layout changes in one frame and only the panel moves, a few pixels toward its edge, while it fades.
+// The neighbours beside it glide from their old box to the new one. All run as Web Animations, so the compositor plays
+// them through main-thread work.
+const low = () => style() === "low"
 
-// Low movement: layout changes in one frame and only the panel moves, a few pixels toward its edge, while it fades. Both
-// run as Web Animations on transform and opacity, so the compositor plays them through main-thread work.
 const lowShift = motionTuning.spring("sidebars.low.shift", {
   label: "Low movement: shift",
   group,
+  when: low,
   shipped: "smooth",
   presets: {
     snappy: { duration: 0.18, bounce: 0 },
@@ -44,12 +49,14 @@ const lowShift = motionTuning.spring("sidebars.low.shift", {
 const lowFade = motionTuning.easing("sidebars.low.fade", {
   label: "Low movement: fade",
   group,
+  when: low,
   value: [0.44, 0.75, 0.63, 1.03],
 })
 
 const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
   label: "Low movement: fade duration",
   group,
+  when: low,
   value: 0.18,
   min: 0.05,
   max: 0.6,
@@ -58,8 +65,38 @@ const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
   time: "duration",
 })
 
+// "flip" translates the neighbours from their old box on the compositor; "width" animates the resized box's real width,
+// re-wrapping its content each frame.
+const lowLayout = motionTuning.choice("sidebars.low.layout", {
+  label: "Low movement: layout",
+  group,
+  when: low,
+  value: "flip",
+  labels: { flip: "Glide (FLIP)", width: "Width", off: "Off" },
+})
+
+const layoutSpring = (direction: string, label: string) =>
+  motionTuning.spring(`sidebars.low.layout.${direction}`, {
+    label,
+    group,
+    when: () => low() && lowLayout() !== "off",
+    shipped: "smooth",
+    presets: {
+      snappy: { duration: 0.12, bounce: 0 },
+      smooth: { duration: 0.16, bounce: 0 },
+      calm: { duration: 0.24, bounce: 0 },
+    },
+  })
+
+const lowLayoutOpen = layoutSpring("open", "Low movement: layout open")
+
+const lowLayoutClose = layoutSpring("close", "Low movement: layout close")
+
 // The opacity a low-movement panel fades up from and down to.
 const faded = 0.15
+
+/** Where a neighbour's content sits: centred content follows its box's centre, start-pinned content its start edge. */
+export type Anchor = "center" | "start"
 
 /** Adds a button that toggles a panel to the Motion workspace's Sidebars section while the panel is mounted. */
 export function replayPanelToggle(input: { id: string; label: string; toggle: () => void }) {
@@ -85,6 +122,10 @@ export function createPanelMotion(input: {
    */
   element?: Accessor<HTMLElement | undefined>
   offset?: number
+  /** Low movement: the boxes beside the panel that glide into place when its layout changes, and how. */
+  neighbours?: () => Array<[HTMLElement | null | undefined, Anchor]>
+  /** Low movement, width layout: the box whose real width animates. */
+  resize?: () => HTMLElement | null | undefined
 }) {
   const [present, setPresent] = createSignal(input.open())
   // Percent closed, so the spring's rest threshold stays well under a pixel.
@@ -186,8 +227,10 @@ export function createPanelMotion(input: {
   const fade = (open: boolean) => {
     stop?.()
     stop = undefined
-    motion.snap(0)
-    paint()
+    glide(true, () => {
+      motion.snap(0)
+      paint()
+    })
     fly(true)
     // Deferred so a panel that mounts with this open exists before it animates; microtasks run before the next paint.
     queueMicrotask(() => {
@@ -213,10 +256,56 @@ export function createPanelMotion(input: {
       ]
       const current = fades
       void Promise.all(current.map((animation) => animation.finished)).then(
-        () => current === fades && (open ? settle() : snap(false)),
+        () => current === fades && (open ? settle() : glide(false, () => snap(false))),
         () => undefined,
       )
     })
+  }
+
+  /**
+   * Runs `change`, which moves the layout, then glides the neighbours from their old boxes to the new ones. The new
+   * boxes are read in a ResizeObserver pass, after the screen's own observers have settled their sizes for the change.
+   */
+  const glide = (open: boolean, change: () => void) => {
+    const mode = lowLayout()
+
+    const before =
+      mode === "flip"
+        ? (input.neighbours?.() ?? []).flatMap(([element, anchor]) =>
+            element ? [{ element, anchor, x: anchorX(element, anchor) }] : [],
+          )
+        : []
+
+    const box = mode === "width" ? input.resize?.() : undefined
+
+    const width = box?.getBoundingClientRect().width
+    change()
+
+    if (before.length === 0 && !box) return
+    const timing = springEasing(open ? lowLayoutOpen() : lowLayoutClose())
+
+    const observer = new ResizeObserver(() => {
+      observer.disconnect()
+      before.forEach(({ element, anchor, x }) => {
+        const dx = x - anchorX(element, anchor)
+
+        if (Math.abs(dx) > 0.5)
+          element.animate(
+            { transform: [`translateX(${dx}px)`, "none"] },
+            { ...timing, composite: "add", fill: "backwards" },
+          )
+      })
+
+      if (!box || width === undefined) return
+      const to = box.getBoundingClientRect().width
+
+      if (Math.abs(to - width) > 0.5)
+        box.animate({ width: [`${width}px`, `${to}px`] }, { ...timing, fill: "backwards" })
+    })
+
+    before.forEach(({ element }) => observer.observe(element))
+
+    if (box) observer.observe(box)
   }
 
   // Repaints at rest when the open size changes, e.g. a resize drag or a window resize.
@@ -282,4 +371,12 @@ function springEasing(tuning: DurationOptions) {
   points[points.length - 1] = 1
 
   return { duration: ((points.length - 1) * 1000) / 60, easing: `linear(${points.join(", ")})` }
+}
+
+function anchorX(element: HTMLElement, anchor: Anchor) {
+  const box = element.getBoundingClientRect()
+
+  if (anchor === "center") return box.left + box.width / 2
+
+  return element.matches(":dir(rtl)") ? box.right : box.left
 }

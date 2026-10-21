@@ -67,13 +67,15 @@ export function mountMotionPanel(
       motionTuning.set(item, value as number)
     }
 
-    const identity = () =>
-      [...motionTuning.list(), ...motionTuning.actions()].map((item) => `${item.group}/${item.id}`).join()
+    // Knobs whose `when` doesn't hold are left out; a change to it rebuilds the panel like a new knob would.
+    const shown = () => motionTuning.list().filter((item) => item.when?.() ?? true)
+
+    const identity = () => [...shown(), ...motionTuning.actions()].map((item) => `${item.group}/${item.id}`).join()
 
     // Rebuilt when a surface registers or removes a knob or action.
     const mount = () => {
       unmount?.()
-      const list = motionTuning.list()
+      const list = shown()
       const actions = motionTuning.actions()
       const mounted = identity()
       const springs = list.flatMap((item) => (item.kind === "spring" ? [item] : []))

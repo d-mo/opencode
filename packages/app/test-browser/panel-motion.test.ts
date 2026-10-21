@@ -363,3 +363,26 @@ it("Low movement snaps under reduced motion", () => {
   expect(panel.painted.width).toBe(0)
   expect(panel.motion.present()).toBe(false)
 })
+
+it("shows only the selected Motion option's controls, under the Motion choice", () => {
+  const shown = () =>
+    motionTuning
+      .list()
+      .filter((knob) => knob.group === "Sidebars" && (knob.when?.() ?? true))
+      .map((knob) => knob.id)
+
+  setStyle("spring")
+  expect(shown()).toEqual(["sidebars.style", "sidebars"])
+  setStyle("low")
+  expect(shown()).toEqual([
+    "sidebars.style",
+    "sidebars.low.shift",
+    "sidebars.low.fade",
+    "sidebars.low.fadeDuration",
+    "sidebars.low.layout",
+    "sidebars.low.layout.open",
+    "sidebars.low.layout.close",
+  ])
+  setStyle("instant")
+  expect(shown()).toEqual(["sidebars.style"])
+})

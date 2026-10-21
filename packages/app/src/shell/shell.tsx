@@ -52,6 +52,11 @@ export default function Layout(props: ParentProps) {
     },
     element: () => state.tabsPanel,
     offset: -10,
+    neighbours: () => [
+      [document.querySelector<HTMLElement>('[data-slot="session-chat-panel"]'), "center"],
+      [document.querySelector<HTMLElement>('[data-slot="session-side-panel-presence"]'), "start"],
+    ],
+    resize: () => state.tabsAside,
   })
 
   replayPanelToggle({ id: "sidebar", label: "Toggle the left sidebar", toggle: toggleSidebar })
