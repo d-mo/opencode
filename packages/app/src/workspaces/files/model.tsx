@@ -298,6 +298,45 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
       onCleanup(stop)
     })
 
+    // The server watches files only on request, for 24 hours from the latest one, so ask when a tab opens, is shown
+    // again, or the stream reconnects (a restarted server forgets its watches). Older servers lack the route.
+    type WatchRequest = { path: string; location: { directory: string } }
+    const watch = (request: WatchRequest) => void serverSDK.api.file.watch(request).catch(() => {})
+    let watched = new Map<string, WatchRequest>()
+
+    createEffect(() => {
+      const directory = scope()
+      const next = new Map<string, WatchRequest>(
+        extensions.files
+          .opened()
+          .filter((file) => !path.absolute(file))
+          .map((file) => [`${directory}\n${file}`, { path: file, location: { directory } }] as const),
+      )
+      next.forEach((request, key) => {
+        if (!watched.has(key)) watch(request)
+      })
+      watched.forEach((request, key) => {
+        if (!next.has(key)) void serverSDK.api.file.unwatch(request).catch(() => {})
+      })
+      watched = next
+    })
+
+    createEffect(
+      on(
+        () => extensions.files.active(),
+        (file) => {
+          if (file && !path.absolute(file)) watch({ path: file, location: { directory: scope() } })
+        },
+        { defer: true },
+      ),
+    )
+
+    createEffect(() => {
+      const stop = serverSDK.event.on("server.connected", () => watched.forEach(watch))
+
+      onCleanup(stop)
+    })
+
     const get = (input: string) => {
       const file = path.normalize(input)
       const state = store.file[file]
