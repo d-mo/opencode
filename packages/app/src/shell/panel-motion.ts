@@ -9,11 +9,11 @@ const [flights, setFlights] = createSignal(0)
 
 export const panelsMoving = () => flights() > 0
 
-// Low movement, chosen in the preset strip beside Snappy, Smooth and Calm, swaps the section's knobs for its own: layout
+// The "James" option, chosen in the preset strip beside Snappy, Smooth and Calm, swaps the section's knobs for its own: layout
 // changes in one frame and only the panel moves, a few pixels toward its edge, while it fades. The neighbours beside it
 // glide from their old box to the new one. All run as Web Animations, so the compositor plays them through main-thread
 // work.
-const low = motionTuning.mode("sidebars.low", { label: "Low movement", group })
+const low = motionTuning.mode("sidebars.low", { label: "James", group })
 
 const kit = () => !low()
 
@@ -69,7 +69,7 @@ const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
   time: "duration",
 })
 
-/** How far the right side panel shifts in from its edge on a low-movement open, in pixels. */
+/** How far the right side panel shifts in from its edge when the James option opens it, in pixels. */
 export const lowPanelShift = motionTuning.number("sidebars.low.panelShift", {
   label: "Panel shift",
   group,
@@ -108,7 +108,7 @@ const lowLayoutOpen = layoutSpring("open", "Layout open")
 
 const lowLayoutClose = layoutSpring("close", "Layout close")
 
-// The opacity a low-movement panel fades up from and down to.
+// The opacity a panel fades up from under the James option and down to.
 const faded = 0.15
 
 /** Where a neighbour's content sits: centred content follows its box's centre, start-pinned content its start edge. */
@@ -133,14 +133,14 @@ export function createPanelMotion(input: {
   identity?: Accessor<unknown>
   onClosed?: () => void
   /**
-   * Low movement: the panel layer that shifts and fades, and how far it shifts, in pixels toward its edge (negative for
+   * James option: the panel layer that shifts and fades, and how far it shifts, in pixels toward its edge (negative for
    * the inline-start edge; mirrored in RTL).
    */
   element?: Accessor<HTMLElement | undefined>
   offset?: () => number
-  /** Low movement: the boxes beside the panel that glide into place when its layout changes, and how. */
+  /** James option: the boxes beside the panel that glide into place when its layout changes, and how. */
   neighbours?: () => Array<[HTMLElement | null | undefined, Anchor]>
-  /** Low movement, width layout: the box whose real width animates. */
+  /** James option, width layout: the box whose real width animates. */
   resize?: () => HTMLElement | null | undefined
 }) {
   const [present, setPresent] = createSignal(input.open())
@@ -151,7 +151,7 @@ export function createPanelMotion(input: {
   // A state `sync` asked to show at once, for when the change hasn't reached this motion yet, e.g. inside a batch.
   let snapTo: boolean | undefined
   let flying = false
-  // The low-movement flight in progress, if any.
+  // The James option's flight in progress, if any.
   let fades: Animation[] = []
 
   const fly = (next: boolean) => {
@@ -212,7 +212,7 @@ export function createPanelMotion(input: {
 
         if (now || prefersReducedMotion() || (!low() && style() === "instant")) return snap(open)
 
-        // Low movement closes at once; only its neighbours glide into place.
+        // The James option closes at once; only its neighbours glide into place.
         if (low()) return open ? fade() : glide(false, () => snap(false))
 
         const tuning = spring()

@@ -42,7 +42,7 @@ function setStyle(value: string) {
   if (knob?.kind === "choice") motionTuning.set(knob, value)
 }
 
-// Low movement is a mode, chosen in the preset strip rather than the Motion choice.
+// The James option is a mode, chosen in the preset strip rather than the Motion choice.
 function setLow(on: boolean) {
   const knob = motionTuning.list().find((item) => item.id === "sidebars.low")
 
@@ -251,7 +251,7 @@ type Played = {
   finish: () => void
 }
 
-// happy-dom has no Web Animations, so the panel layer records what Low movement asks it to play.
+// happy-dom has no Web Animations, so the panel layer records what the James option asks it to play.
 function setupLow(initial: boolean) {
   setLow(true)
   const [open, setOpen] = createSignal(initial)
@@ -302,7 +302,7 @@ const land = async (played: Played[]) => {
   await tick()
 }
 
-it("Low movement opens with the layout first, then shifts the panel in on a spring and fades it up from 0.15", async () => {
+it("The James option opens with the layout first, then shifts the panel in on a spring and fades it up from 0.15", async () => {
   const panel = setupLow(false)
   panel.setOpen(true)
   expect(panel.painted.width).toBe(200)
@@ -329,7 +329,7 @@ it("Low movement opens with the layout first, then shifts the panel in on a spri
   expect(panelsMoving()).toBe(false)
 })
 
-it("Low movement closes at once, cancelling an opening in flight", async () => {
+it("The James option closes at once, cancelling an opening in flight", async () => {
   const panel = setupLow(false)
   panel.setOpen(true)
   await tick()
@@ -343,7 +343,7 @@ it("Low movement closes at once, cancelling an opening in flight", async () => {
   expect(panelsMoving()).toBe(false)
 })
 
-it("Low movement snaps under reduced motion", () => {
+it("The James option snaps under reduced motion", () => {
   document.documentElement.dataset.motion = "reduce"
   cleanups.push(() => delete document.documentElement.dataset.motion)
   const panel = setupLow(true)
@@ -354,7 +354,7 @@ it("Low movement snaps under reduced motion", () => {
   expect(panel.motion.present()).toBe(false)
 })
 
-it("swaps Kit's knobs for Low movement's while its mode is on", () => {
+it("swaps Kit's knobs for the James option's while its mode is on", () => {
   const shown = () =>
     motionTuning
       .list()
