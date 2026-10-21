@@ -106,6 +106,35 @@ describe("FileWatch", () => {
   )
 })
 
+describe("FileWatch dead watches", () => {
+  const counts = { subscribes: 0 }
+  // A native watch that cannot start, like one on a directory that no longer exists.
+  const failing = testEffect(
+    FileWatch.layer().pipe(
+      Layer.provide(
+        Watcher.layer().pipe(
+          Layer.provide(
+            Layer.succeed(
+              Watcher.Native,
+              Watcher.Native.of({ subscribe: () => Effect.sync(() => void counts.subscribes++) }),
+            ),
+          ),
+        ),
+      ),
+      Layer.provide(services),
+    ),
+  )
+  failing.effect("starts a new watch when the previous one ended", () =>
+    Effect.gen(function* () {
+      const fileWatch = yield* FileWatch.Service
+      yield* fileWatch.watch(file("a.ts"))
+      yield* Effect.repeat(Effect.yieldNow, { times: 10 })
+      yield* fileWatch.watch(file("a.ts"))
+      expect(counts.subscribes).toBe(2)
+    }),
+  )
+})
+
 describe("FileWatch disabled", () => {
   const disabled = testEffect(
     FileWatch.layer({ enabled: false }).pipe(Layer.provide(Watcher.testLayer), Layer.provide(services)),

@@ -64,36 +64,48 @@ export const layer = (options?: Options) =>
       const bus = yield* Bus.Service
       const fs = yield* FSUtil.Service
       const scope = yield* Effect.scope
-      const lock = Semaphore.makeUnsafe(1)
+      const lock = yield* Semaphore.make(1)
       const locations = new Map<string, Map<string, Entry>>()
       const locationKey = (location: Location.Ref) => JSON.stringify([location.directory, location.workspaceID])
 
+      const remove = (key: string, file: string) => {
+        const files = locations.get(key)
+        const entry = files?.get(file)
+        if (!files || !entry) return
+        files.delete(file)
+        if (files.size === 0) locations.delete(key)
+        return entry
+      }
+
       const stop = (key: string, file: string) =>
         Effect.suspend(() => {
-          const files = locations.get(key)
-          const entry = files?.get(file)
-          if (!files || !entry) return Effect.void
-          files.delete(file)
-          if (files.size === 0) locations.delete(key)
+          const entry = remove(key, file)
+          if (!entry) return Effect.void
           return Scope.close(entry.scope, Exit.void)
         })
 
-      const start = Effect.fnUntraced(function* (input: Input) {
+      const start = Effect.fnUntraced(function* (key: string, input: Input) {
         const child = yield* Scope.fork(scope)
         yield* Effect.gen(function* () {
           const updates = yield* watcher.subscribe({ path: input.file, type: "file" })
           yield* Stream.runForEach(updates, () =>
-            fs
-              .existsSafe(input.file)
-              .pipe(
-                Effect.flatMap((exists) =>
-                  bus.publish(
-                    FileSystem.Event.Changed,
-                    { file: input.file, event: exists ? "change" : "unlink" },
-                    { location: input.location },
-                  ),
-                ),
-              ),
+            Effect.gen(function* () {
+              const exists = yield* fs.existsSafe(input.file)
+              yield* bus.publish(
+                FileSystem.Event.Changed,
+                { file: input.file, event: exists ? "change" : "unlink" },
+                { location: input.location },
+              )
+            }),
+          )
+          // The native watch ended (e.g. its directory vanished): forget it so the next watch starts a new one.
+          // The scope closes from another fiber because closing it interrupts this one.
+          yield* lock.withPermit(
+            Effect.suspend(() => {
+              if (locations.get(key)?.get(input.file)?.scope !== child) return Effect.void
+              remove(key, input.file)
+              return Scope.close(child, Exit.void).pipe(Effect.forkIn(scope), Effect.asVoid)
+            }),
           )
         }).pipe(
           Effect.catchCauseIf(
@@ -132,7 +144,7 @@ export const layer = (options?: Options) =>
                 const soonest = [...full].reduce((a, b) => (b[1].expires < a[1].expires ? b : a))
                 yield* stop(key, soonest[0])
               }
-              const entry = { expires, scope: yield* start(input) }
+              const entry = { expires, scope: yield* start(key, input) }
               const files = locations.get(key) ?? new Map<string, Entry>()
               files.set(input.file, entry)
               locations.set(key, files)
