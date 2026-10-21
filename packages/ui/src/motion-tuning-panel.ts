@@ -80,8 +80,7 @@ export function mountMotionPanel(
       unmount?.()
       const all = shown()
       // Modes sit in the preset strip, not as rows. While one is on, the spring presets only switch back, then apply.
-      const modes = all.flatMap((item) => (item.kind === "mode" ? [item] : []))
-      const active = modes.find((item) => item.value)
+      const active = all.find((item) => item.kind === "mode" && item.value)
       const list = all.filter((item) => item.kind !== "mode")
       const actions = motionTuning.actions()
       const mounted = identity()
@@ -90,6 +89,11 @@ export function mountMotionPanel(
       // Easing editors open inline, like the spring rows beside them, rather than folded behind a chevron.
       openEditors(list.flatMap((item) => (item.kind === "easing" ? [item.id] : [])))
       const sections = [...new Set([...list, ...actions].map((item) => item.group))].filter((group) => group !== global)
+
+      // A mode sits in the strip only on its own section's tab; switching to or from that tab rebuilds the strip.
+      const modes = all.flatMap((item) =>
+        item.kind === "mode" && item.group === (section ?? sections[0]) ? [item] : [],
+      )
 
       const controls = defineControls(
         "opencode-motion",
@@ -138,7 +142,7 @@ export function mountMotionPanel(
       sync()
 
       // The strip shows the mode that's on; a preset chosen while a mode was on applies once its knobs are back.
-      if (active) controls.preset(active.id)
+      if (active && active.id in controls.presets) controls.preset(active.id)
 
       if (!active && switching && switching in controls.presets) controls.preset(switching)
       switching = undefined
@@ -165,7 +169,15 @@ export function mountMotionPanel(
         hints: "panel",
         tabs: sections,
         tab: section,
-        onTab: (id) => (section = id),
+        onTab: (id) => {
+          const offered = (group: string | undefined) =>
+            all.some((item) => item.kind === "mode" && item.group === group)
+
+          const rebuild = offered(section) !== offered(id)
+          section = id
+
+          if (rebuild) mount()
+        },
       })
 
       const stopWatch = motionTuning.subscribe(() => {
