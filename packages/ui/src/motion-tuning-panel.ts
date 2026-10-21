@@ -15,6 +15,8 @@ export function mountMotionPanel(
   options: { title?: string; section?: string; onClose?: () => void } = {},
 ) {
   let unmount: (() => void) | undefined
+  // The preset chosen to leave a mode, applied once the rebuilt panel has the knobs it sets.
+  let switching: string | undefined
   let disposed = false
   let section = options.section
 
@@ -33,7 +35,8 @@ export function mountMotionPanel(
 
       if (item.kind === "spring") return spring(item.initial, meta)
 
-      if (item.kind === "toggle") return toggle(item.initial, meta)
+      // Modes never reach here as rows; they sit in the preset strip.
+      if (item.kind === "toggle" || item.kind === "mode") return toggle(item.initial, meta)
 
       if (item.kind === "easing") return easing(item.initial, meta)
 
@@ -53,7 +56,7 @@ export function mountMotionPanel(
         return motionTuning.set(item, [...(value as Bezier)] as Bezier)
       }
 
-      if (item.kind === "toggle") {
+      if (item.kind === "toggle" || item.kind === "mode") {
         // SAFETY: a toggle knob's field is a toggle field.
         return motionTuning.set(item, value as boolean)
       }
@@ -75,11 +78,17 @@ export function mountMotionPanel(
     // Rebuilt when a surface registers or removes a knob or action.
     const mount = () => {
       unmount?.()
-      const list = shown()
+      const all = shown()
+      // Modes sit in the preset strip, not as rows. While one is on, the spring presets only switch back, then apply.
+      const modes = all.flatMap((item) => (item.kind === "mode" ? [item] : []))
+      const active = modes.find((item) => item.value)
+      const list = all.filter((item) => item.kind !== "mode")
       const actions = motionTuning.actions()
       const mounted = identity()
-      const springs = list.flatMap((item) => (item.kind === "spring" ? [item] : []))
+      const springs = active ? [] : list.flatMap((item) => (item.kind === "spring" ? [item] : []))
       const preset = (id: MotionPreset) => Object.fromEntries(springs.map((item) => [item.id, item.presets[id]]))
+      // Easing editors open inline, like the spring rows beside them, rather than folded behind a chevron.
+      openEditors(list.flatMap((item) => (item.kind === "easing" ? [item.id] : [])))
       const sections = [...new Set([...list, ...actions].map((item) => item.group))].filter((group) => group !== global)
 
       const controls = defineControls(
@@ -108,8 +117,13 @@ export function mountMotionPanel(
           persist: "variants",
           // Springs ship different presets, so the defaults get their own chip.
           defaultLabel: "Shipped",
-          presetLabels: motionPresets,
-          presets: { snappy: preset("snappy"), smooth: preset("smooth"), calm: preset("calm") },
+          presetLabels: { ...motionPresets, ...Object.fromEntries(modes.map((item) => [item.id, item.label])) },
+          presets: {
+            snappy: preset("snappy"),
+            smooth: preset("smooth"),
+            calm: preset("calm"),
+            ...Object.fromEntries(modes.map((item) => [item.id, {}])),
+          },
           onChange: (patch) =>
             list.forEach((item) => {
               // SAFETY: each field was made from its knob above, so its value is that knob's kind.
@@ -122,6 +136,25 @@ export function mountMotionPanel(
 
       const sync = () => controls.sync(Object.fromEntries(list.map((item) => [item.id, item.value])))
       sync()
+
+      // The strip shows the mode that's on; a preset chosen while a mode was on applies once its knobs are back.
+      if (active) controls.preset(active.id)
+
+      if (!active && switching && switching in controls.presets) controls.preset(switching)
+      switching = undefined
+
+      const stopModes = controls.subscribe(() => {
+        const chosen = controls.activePreset()
+
+        modes.forEach((item) => {
+          const on = chosen?.kind === "preset" && chosen.id === item.id
+
+          if (on === item.value) return
+
+          if (!on) switching = chosen?.kind === "preset" ? chosen.id : chosen ? undefined : "default"
+          motionTuning.set(item, on)
+        })
+      })
 
       const stopPanel = controls.mount(container, {
         theme: "auto",
@@ -143,10 +176,22 @@ export function mountMotionPanel(
 
       unmount = () => {
         stopWatch()
+        stopModes()
         stopPanel()
       }
     }
 
     if (!disposed) mount()
   }
+}
+
+// knobs remembers which rows' editors are open in this tab's session; adding ids there opens them on mount.
+function openEditors(ids: string[]) {
+  if (ids.length === 0 || typeof sessionStorage === "undefined") return
+  const key = "knobs:opencode-motion:session:v1"
+  const session = JSON.parse(sessionStorage.getItem(key) ?? "{}")
+  const expanded: string[] = Array.isArray(session.expanded) ? session.expanded : []
+
+  if (ids.every((id) => expanded.includes(id))) return
+  sessionStorage.setItem(key, JSON.stringify({ ...session, expanded: [...new Set([...expanded, ...ids])] }))
 }

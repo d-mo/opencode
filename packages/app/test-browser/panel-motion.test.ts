@@ -33,12 +33,20 @@ afterEach(() => {
   globalThis.requestAnimationFrame = originals.raf
   globalThis.cancelAnimationFrame = originals.caf
   setStyle("spring")
+  setLow(false)
 })
 
 function setStyle(value: string) {
   const knob = motionTuning.list().find((item) => item.id === "sidebars.style")
 
   if (knob?.kind === "choice") motionTuning.set(knob, value)
+}
+
+// Low movement is a mode, chosen in the preset strip rather than the Motion choice.
+function setLow(on: boolean) {
+  const knob = motionTuning.list().find((item) => item.id === "sidebars.low")
+
+  if (knob?.kind === "mode") motionTuning.set(knob, on)
 }
 
 function frame() {
@@ -245,7 +253,7 @@ type Played = {
 
 // happy-dom has no Web Animations, so the panel layer records what Low movement asks it to play.
 function setupLow(initial: boolean) {
-  setStyle("low")
+  setLow(true)
   const [open, setOpen] = createSignal(initial)
   const played: Played[] = []
   const closed: number[] = []
@@ -364,25 +372,16 @@ it("Low movement snaps under reduced motion", () => {
   expect(panel.motion.present()).toBe(false)
 })
 
-it("shows only the selected Motion option's controls, under the Motion choice", () => {
+it("swaps Kit's knobs for Low movement's while its mode is on", () => {
   const shown = () =>
     motionTuning
       .list()
-      .filter((knob) => knob.group === "Sidebars" && (knob.when?.() ?? true))
-      .map((knob) => knob.id)
+      .filter((knob) => knob.group === "Sidebars" && knob.kind !== "mode" && (knob.when?.() ?? true))
+      .map((knob) => knob.label)
 
-  setStyle("spring")
-  expect(shown()).toEqual(["sidebars.style", "sidebars"])
-  setStyle("low")
-  expect(shown()).toEqual([
-    "sidebars.style",
-    "sidebars.low.shift",
-    "sidebars.low.fade",
-    "sidebars.low.fadeDuration",
-    "sidebars.low.layout",
-    "sidebars.low.layout.open",
-    "sidebars.low.layout.close",
-  ])
-  setStyle("instant")
-  expect(shown()).toEqual(["sidebars.style"])
+  expect(shown()).toEqual(["Spring", "Motion"])
+  setLow(true)
+  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Layout", "Layout open", "Layout close"])
+  setLow(false)
+  expect(shown()).toEqual(["Spring", "Motion"])
 })

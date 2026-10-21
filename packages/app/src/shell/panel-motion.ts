@@ -9,18 +9,19 @@ const [flights, setFlights] = createSignal(0)
 
 export const panelsMoving = () => flights() > 0
 
-const style = motionTuning.choice("sidebars.style", {
-  label: "Motion",
-  group,
-  value: "spring",
-  labels: { spring: "Spring", low: "Low movement", instant: "Instant" },
-})
+// Low movement, chosen in the preset strip beside Snappy, Smooth and Calm, swaps the section's knobs for its own: layout
+// changes in one frame and only the panel moves, a few pixels toward its edge, while it fades. The neighbours beside it
+// glide from their old box to the new one. All run as Web Animations, so the compositor plays them through main-thread
+// work.
+const low = motionTuning.mode("sidebars.low", { label: "Low movement", group })
+
+const kit = () => !low()
 
 // The left sidebar and the side panel share one spring, so they move as one system.
 const spring = motionTuning.spring("sidebars", {
   label: "Spring",
   group,
-  when: () => style() === "spring",
+  when: kit,
   shipped: "smooth",
   presets: {
     snappy: { duration: 0.2, bounce: 0 },
@@ -29,13 +30,16 @@ const spring = motionTuning.spring("sidebars", {
   },
 })
 
-// Low movement: layout changes in one frame and only the panel moves, a few pixels toward its edge, while it fades.
-// The neighbours beside it glide from their old box to the new one. All run as Web Animations, so the compositor plays
-// them through main-thread work.
-const low = () => style() === "low"
+const style = motionTuning.choice("sidebars.style", {
+  label: "Motion",
+  group,
+  when: kit,
+  value: "spring",
+  labels: { spring: "Spring", instant: "Instant" },
+})
 
 const lowShift = motionTuning.spring("sidebars.low.shift", {
-  label: "Low movement: shift",
+  label: "Movement",
   group,
   when: low,
   shipped: "smooth",
@@ -47,14 +51,14 @@ const lowShift = motionTuning.spring("sidebars.low.shift", {
 })
 
 const lowFade = motionTuning.easing("sidebars.low.fade", {
-  label: "Low movement: fade",
+  label: "Fade",
   group,
   when: low,
   value: [0.44, 0.75, 0.63, 1.03],
 })
 
 const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
-  label: "Low movement: fade duration",
+  label: "Fade duration",
   group,
   when: low,
   value: 0.18,
@@ -68,7 +72,7 @@ const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
 // "flip" translates the neighbours from their old box on the compositor; "width" animates the resized box's real width,
 // re-wrapping its content each frame.
 const lowLayout = motionTuning.choice("sidebars.low.layout", {
-  label: "Low movement: layout",
+  label: "Layout",
   group,
   when: low,
   value: "flip",
@@ -88,9 +92,9 @@ const layoutSpring = (direction: string, label: string) =>
     },
   })
 
-const lowLayoutOpen = layoutSpring("open", "Low movement: layout open")
+const lowLayoutOpen = layoutSpring("open", "Layout open")
 
-const lowLayoutClose = layoutSpring("close", "Low movement: layout close")
+const lowLayoutClose = layoutSpring("close", "Layout close")
 
 // The opacity a low-movement panel fades up from and down to.
 const faded = 0.15
@@ -195,9 +199,9 @@ export function createPanelMotion(input: {
           return
         }
 
-        if (now || prefersReducedMotion() || style() === "instant") return snap(open)
+        if (now || prefersReducedMotion() || (!low() && style() === "instant")) return snap(open)
 
-        if (style() === "low") return fade(open)
+        if (low()) return fade(open)
 
         const tuning = spring()
         motion.omega = (2 * Math.PI) / tuning.duration

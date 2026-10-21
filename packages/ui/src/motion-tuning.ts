@@ -26,6 +26,7 @@ export type Bezier = [number, number, number, number]
 export type MotionKnob =
   | (Knob<"spring", DurationOptions> & { presets: Record<MotionPreset, DurationOptions> })
   | Knob<"easing", Bezier>
+  | Knob<"mode", boolean>
   | Knob<"toggle", boolean>
   | (Knob<"number", number> & { min: number; max: number; step: number; unit?: string })
   | (Knob<"choice", string> & { options: readonly [string, ...string[]]; labels: Record<string, string> })
@@ -78,6 +79,23 @@ export const motionTuning = {
       initial: meta.value,
       // SAFETY: mapping the four indices of a Bezier yields four numbers.
       value: [0, 1, 2, 3].map((index) => number(`${id}.${index}`, meta.value[index])) as Bezier,
+    })
+
+    return () => knob.value
+  },
+  /**
+   * An alternative to a section's springs, offered beside the Snappy, Smooth and Calm presets rather than as a row.
+   * Choosing it turns it on; choosing any other preset turns it off. Knobs can show only in one or the other with `when`.
+   */
+  mode(id: string, meta: Meta) {
+    const knob = register({
+      kind: "mode",
+      id,
+      label: meta.label,
+      group: meta.group,
+      when: meta.when,
+      initial: false,
+      value: number(id, 0) === 1,
     })
 
     return () => knob.value
@@ -244,7 +262,7 @@ function save() {
           knob.initial[index],
         ])
 
-      if (knob.kind === "toggle") return [[knob.id, Number(knob.value), Number(knob.initial)]]
+      if (knob.kind === "toggle" || knob.kind === "mode") return [[knob.id, Number(knob.value), Number(knob.initial)]]
 
       if (knob.kind === "choice")
         return [[knob.id, knob.options.indexOf(knob.value), knob.options.indexOf(knob.initial)]]
