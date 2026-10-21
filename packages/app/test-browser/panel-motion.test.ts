@@ -235,3 +235,131 @@ it("moves focus out of a closing panel when the close starts and when it re-ente
   inner.focus()
   expect(document.activeElement).toBe(inner)
 })
+
+type Played = {
+  keyframes: PropertyIndexedKeyframes
+  options: KeyframeAnimationOptions
+  cancelled: boolean
+  finish: () => void
+}
+
+// happy-dom has no Web Animations, so the panel layer records what Low movement asks it to play.
+function setupLow(initial: boolean) {
+  setStyle("low")
+  const [open, setOpen] = createSignal(initial)
+  const played: Played[] = []
+  const closed: number[] = []
+  const painted = { width: initial ? 200 : 0 }
+  const element = document.createElement("div")
+  Object.defineProperty(element, "animate", {
+    value: (keyframes: PropertyIndexedKeyframes, options: KeyframeAnimationOptions) => {
+      const finished = Promise.withResolvers<void>()
+      const animation = { keyframes, options, cancelled: false, finish: () => finished.resolve() }
+      played.push(animation)
+
+      return {
+        finished: finished.promise,
+        cancel: () => {
+          animation.cancelled = true
+          finished.reject(new Error("cancelled"))
+        },
+      }
+    },
+  })
+
+  const motion = createRoot((dispose) => {
+    cleanups.push(dispose)
+
+    return createPanelMotion({
+      open,
+      paint: (shut) => {
+        painted.width = 200 * (1 - shut)
+      },
+      onClosed: () => closed.push(time),
+      element: () => element,
+      offset: -10,
+    })
+  })
+
+  return { played, setOpen, closed, painted, motion }
+}
+
+const tick = async () => {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+const land = async (played: Played[]) => {
+  played.filter((animation) => !animation.cancelled).forEach((animation) => animation.finish())
+  await tick()
+}
+
+it("Low movement opens with the layout first, then shifts the panel in on a spring and fades it up from 0.15", async () => {
+  const panel = setupLow(false)
+  panel.setOpen(true)
+  expect(panel.painted.width).toBe(200)
+  expect(panel.motion.present()).toBe(true)
+  await tick()
+
+  const [shift, fade] = panel.played
+  expect(shift.keyframes.transform).toEqual(["translateX(-10px)", "none"])
+  // A 240 ms spring without bounce: x(t) = 1 - (1 + ωt)e^(-ωt), sampled per 60 Hz frame.
+  const omega = (2 * Math.PI) / 0.24
+  const points = String(shift.options.easing).slice("linear(".length, -1).split(", ").map(Number)
+  points.slice(1, -1).forEach((point, index) => {
+    const t = (index + 1) / 60
+    expect(point).toBeCloseTo(1 - (1 + omega * t) * Math.exp(-omega * t), 2)
+  })
+  expect(fade.keyframes.opacity).toEqual(["0.15", "1"])
+  expect(fade.options).toMatchObject({ duration: 180, easing: "cubic-bezier(0.44, 0.75, 0.63, 1.03)" })
+  expect(panelsMoving()).toBe(true)
+
+  const ran: string[] = []
+  panel.motion.whenSettled(() => ran.push("opened"))
+  await land(panel.played)
+  expect(ran).toEqual(["opened"])
+  expect(panelsMoving()).toBe(false)
+})
+
+it("Low movement closes in reverse, keeping the layout until the panel has faded down", async () => {
+  const panel = setupLow(true)
+  panel.setOpen(false)
+  await tick()
+
+  const [shift, fade] = panel.played
+  expect(shift.keyframes.transform).toEqual(["none", "translateX(-10px)"])
+  expect(fade.keyframes.opacity).toEqual(["1", "0.15"])
+  expect(panel.painted.width).toBe(200)
+  expect(panel.motion.present()).toBe(true)
+
+  await land(panel.played)
+  expect(panel.painted.width).toBe(0)
+  expect(panel.motion.present()).toBe(false)
+  expect(panel.closed).toHaveLength(1)
+})
+
+it("Low movement turns around mid-flight, cancelling the first direction", async () => {
+  const panel = setupLow(true)
+  panel.setOpen(false)
+  await tick()
+  panel.setOpen(true)
+  await tick()
+
+  expect(panel.played).toHaveLength(4)
+  expect(panel.played.slice(0, 2).every((animation) => animation.cancelled)).toBe(true)
+  expect(panel.played[2].keyframes.transform?.at(-1)).toBe("none")
+  await land(panel.played)
+  expect(panel.motion.present()).toBe(true)
+  expect(panel.closed).toEqual([])
+})
+
+it("Low movement snaps under reduced motion", () => {
+  document.documentElement.dataset.motion = "reduce"
+  cleanups.push(() => delete document.documentElement.dataset.motion)
+  const panel = setupLow(true)
+  panel.setOpen(false)
+
+  expect(panel.played).toEqual([])
+  expect(panel.painted.width).toBe(0)
+  expect(panel.motion.present()).toBe(false)
+})

@@ -1,5 +1,5 @@
 import { createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js"
-import { frameLoop, prefersReducedMotion, Spring } from "@opencode/ui/motion"
+import { frameLoop, prefersReducedMotion, Spring, type DurationOptions } from "@opencode/ui/motion"
 import { motionTuning } from "@opencode/ui/motion-tuning"
 
 const group = "Sidebars"
@@ -25,8 +25,41 @@ const style = motionTuning.choice("sidebars.style", {
   label: "Motion",
   group,
   value: "spring",
-  labels: { spring: "Spring", instant: "Instant" },
+  labels: { spring: "Spring", low: "Low movement", instant: "Instant" },
 })
+
+// Low movement: layout changes in one frame and only the panel moves, a few pixels toward its edge, while it fades. Both
+// run as Web Animations on transform and opacity, so the compositor plays them through main-thread work.
+const lowShift = motionTuning.spring("sidebars.low.shift", {
+  label: "Low movement: shift",
+  group,
+  shipped: "smooth",
+  presets: {
+    snappy: { duration: 0.18, bounce: 0 },
+    smooth: { duration: 0.24, bounce: 0 },
+    calm: { duration: 0.32, bounce: 0 },
+  },
+})
+
+const lowFade = motionTuning.easing("sidebars.low.fade", {
+  label: "Low movement: fade",
+  group,
+  value: [0.44, 0.75, 0.63, 1.03],
+})
+
+const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
+  label: "Low movement: fade duration",
+  group,
+  value: 0.18,
+  min: 0.05,
+  max: 0.6,
+  step: 0.01,
+  unit: "s",
+  time: "duration",
+})
+
+// The opacity a low-movement panel fades up from and down to.
+const faded = 0.15
 
 /** Adds a button that toggles a panel to the Motion workspace's Sidebars section while the panel is mounted. */
 export function replayPanelToggle(input: { id: string; label: string; toggle: () => void }) {
@@ -46,6 +79,12 @@ export function createPanelMotion(input: {
   /** A change shows the new state without motion, e.g. switching to another session's layout. */
   identity?: Accessor<unknown>
   onClosed?: () => void
+  /**
+   * Low movement: the panel layer that shifts and fades, and how far it shifts, in pixels toward its edge (negative for
+   * the inline-start edge; mirrored in RTL).
+   */
+  element?: Accessor<HTMLElement | undefined>
+  offset?: number
 }) {
   const [present, setPresent] = createSignal(input.open())
   // Percent closed, so the spring's rest threshold stays well under a pixel.
@@ -55,6 +94,8 @@ export function createPanelMotion(input: {
   // A state `sync` asked to show at once, for when the change hasn't reached this motion yet, e.g. inside a batch.
   let snapTo: boolean | undefined
   let flying = false
+  // The low-movement flight in progress, if any.
+  let fades: Animation[] = []
 
   const fly = (next: boolean) => {
     if (flying === next) return
@@ -67,6 +108,8 @@ export function createPanelMotion(input: {
   const settle = () => {
     stop?.()
     stop = undefined
+    fades.forEach((animation) => animation.cancel())
+    fades = []
     fly(false)
     const queued = landed
     landed = []
@@ -100,6 +143,8 @@ export function createPanelMotion(input: {
         if (previous === undefined || previous[1] !== identity) {
           stop?.()
           stop = undefined
+          fades.forEach((animation) => animation.cancel())
+          fades = []
           fly(false)
           motion.snap(target)
           paint()
@@ -110,6 +155,8 @@ export function createPanelMotion(input: {
         }
 
         if (now || prefersReducedMotion() || style() === "instant") return snap(open)
+
+        if (style() === "low") return fade(open)
 
         const tuning = spring()
         motion.omega = (2 * Math.PI) / tuning.duration
@@ -132,22 +179,63 @@ export function createPanelMotion(input: {
     ),
   )
 
+  /**
+   * Opens with the layout first, then the panel shifts in and fades up; closes in reverse, with the layout last. A
+   * reversal mid-flight turns around from where the panel is.
+   */
+  const fade = (open: boolean) => {
+    stop?.()
+    stop = undefined
+    motion.snap(0)
+    paint()
+    fly(true)
+    // Deferred so a panel that mounts with this open exists before it animates; microtasks run before the next paint.
+    queueMicrotask(() => {
+      const element = input.element?.()
+
+      if (input.open() !== open) return
+
+      if (!element?.animate) return open ? settle() : snap(false)
+
+      const x = (input.offset ?? 0) * (element.matches(":dir(rtl)") ? -1 : 1)
+      const away = { transform: `translateX(${x}px)`, opacity: `${faded}` }
+      const rest = { transform: "none", opacity: "1" }
+      const target = open ? rest : away
+      const start = fades.length > 0 ? getComputedStyle(element) : open ? away : rest
+      const tuning = lowShift()
+      fades.forEach((animation) => animation.cancel())
+      fades = [
+        element.animate({ transform: [start.transform, target.transform] }, { ...springEasing(tuning), fill: "both" }),
+        element.animate(
+          { opacity: [start.opacity, target.opacity] },
+          { duration: lowFadeDuration() * 1000, easing: `cubic-bezier(${lowFade().join(", ")})`, fill: "both" },
+        ),
+      ]
+      const current = fades
+      void Promise.all(current.map((animation) => animation.finished)).then(
+        () => current === fades && (open ? settle() : snap(false)),
+        () => undefined,
+      )
+    })
+  }
+
   // Repaints at rest when the open size changes, e.g. a resize drag or a window resize.
   createEffect(paint)
 
   onCleanup(() => {
     stop?.()
+    fades.forEach((animation) => animation.cancel())
     fly(false)
   })
 
   return {
     present,
     sync: (open: boolean) => {
-      if (stop && input.open() === open) return snap(open)
+      if (flying && input.open() === open) return snap(open)
       snapTo = open
     },
     whenSettled: (run: () => void) => {
-      if (stop) return void landed.push(run)
+      if (flying) return void landed.push(run)
       run()
     },
   }
@@ -182,4 +270,16 @@ export function guardClosingFocus(input: {
     root.addEventListener("focusin", evict)
     onCleanup(() => root.removeEventListener("focusin", evict))
   })
+}
+
+/** A spring sampled per 60 Hz frame into a CSS `linear()` easing, ending once within 0.5% of rest. */
+function springEasing(tuning: DurationOptions) {
+  const spring = Spring.fromDuration(0, tuning).set(1)
+  const points = [0]
+
+  while (points.length < 240 && (Math.abs(1 - points.at(-1)!) > 0.005 || Math.abs(spring.velocity) > 0.05))
+    points.push(Math.round(spring.step(1 / 60) * 1000) / 1000)
+  points[points.length - 1] = 1
+
+  return { duration: ((points.length - 1) * 1000) / 60, easing: `linear(${points.join(", ")})` }
 }

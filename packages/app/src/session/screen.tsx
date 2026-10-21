@@ -152,6 +152,7 @@ function SessionScreenContent(props: {
   // The chat keeps its open width as the far end of a close's travel.
   const chatOpenWidth = createMemo<string>((previous) => (sideVisible() ? screen.panel.width() : previous), "100%")
   let chat: HTMLDivElement | undefined
+  let sidePresence: HTMLDivElement | undefined
 
   // Once opened, the side region stays mounted and is skipped by content-visibility when a close settles, so neither
   // direction mounts its contents mid-flight, and a reopen reuses their style and layout.
@@ -171,6 +172,8 @@ function SessionScreenContent(props: {
 
       chat.style.width = closed === 0 ? open : `calc(${open} + (100% - ${open}) * ${closed})`
     },
+    element: () => sidePresence,
+    offset: 12,
   })
 
   replayPanelToggle({
@@ -465,6 +468,7 @@ function SessionScreenContent(props: {
 
           <Show when={sideMotion.present() || store.sideMounted}>
             <div
+              ref={sidePresence}
               data-slot="session-side-panel-presence"
               class="z-0 min-w-0 h-full overflow-visible"
               classList={{

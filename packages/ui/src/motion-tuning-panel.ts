@@ -1,5 +1,5 @@
 import type { DurationOptions } from "./motion"
-import { motionPresets, motionTuning, type MotionKnob, type MotionPreset } from "./motion-tuning"
+import { motionPresets, motionTuning, type Bezier, type MotionKnob, type MotionPreset } from "./motion-tuning"
 
 const global = "Global"
 
@@ -26,7 +26,7 @@ export function mountMotionPanel(
   }
 
   async function start() {
-    const { action, choice, defineControls, knob, spring, toggle } = await import("knobs")
+    const { action, choice, defineControls, easing, knob, spring, toggle } = await import("knobs")
 
     const field = (item: MotionKnob) => {
       const meta = { label: item.label, group: item.group, tab: item.group === global ? undefined : item.group }
@@ -34,6 +34,8 @@ export function mountMotionPanel(
       if (item.kind === "spring") return spring(item.initial, meta)
 
       if (item.kind === "toggle") return toggle(item.initial, meta)
+
+      if (item.kind === "easing") return easing(item.initial, meta)
 
       if (item.kind === "choice") return choice(item.initial, item.options, { ...meta, labels: item.labels })
 
@@ -44,6 +46,11 @@ export function mountMotionPanel(
       if (item.kind === "spring") {
         // SAFETY: a spring knob's field is a spring field.
         return motionTuning.set(item, value as DurationOptions)
+      }
+
+      if (item.kind === "easing") {
+        // SAFETY: an easing knob's field is an easing field.
+        return motionTuning.set(item, [...(value as Bezier)] as Bezier)
       }
 
       if (item.kind === "toggle") {

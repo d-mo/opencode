@@ -18,8 +18,12 @@ export const motionPresets = { snappy: "Snappy", smooth: "Smooth", calm: "Calm" 
 
 export type MotionPreset = keyof typeof motionPresets
 
+/** A CSS `cubic-bezier(x1, y1, x2, y2)`. */
+export type Bezier = [number, number, number, number]
+
 export type MotionKnob =
   | (Knob<"spring", DurationOptions> & { presets: Record<MotionPreset, DurationOptions> })
+  | Knob<"easing", Bezier>
   | Knob<"toggle", boolean>
   | (Knob<"number", number> & { min: number; max: number; step: number; unit?: string })
   | (Knob<"choice", string> & { options: readonly [string, ...string[]]; labels: Record<string, string> })
@@ -37,7 +41,7 @@ const actions = new Map<string, MotionAction>()
 
 const listeners = new Set<() => void>()
 
-// Saved as numbers only: `<id>.duration` and `<id>.bounce` for springs, 0 or 1 for toggles, the option's index for choices.
+// Saved as numbers only: `<id>.duration` and `<id>.bounce` for springs, `<id>.0`…`<id>.3` for easings, 0 or 1 for toggles, the option's index for choices.
 const saved = load()
 
 export const motionTuning = {
@@ -59,6 +63,20 @@ export const motionTuning = {
       duration: Math.max(0.03, knob.value.duration * timeScale()),
       bounce: Math.min(0.95, Math.max(0, knob.value.bounce)),
     })
+  },
+  /** A cubic-bezier curve, edited with its handles. */
+  easing(id: string, meta: Meta & { value: Bezier }) {
+    const knob = register({
+      kind: "easing",
+      id,
+      label: meta.label,
+      group: meta.group,
+      initial: meta.value,
+      // SAFETY: mapping the four indices of a Bezier yields four numbers.
+      value: [0, 1, 2, 3].map((index) => number(`${id}.${index}`, meta.value[index])) as Bezier,
+    })
+
+    return () => knob.value
   },
   toggle(id: string, meta: Meta & { value: boolean }) {
     const knob = register({
@@ -211,6 +229,13 @@ function save() {
           [`${knob.id}.duration`, knob.value.duration, knob.initial.duration],
           [`${knob.id}.bounce`, knob.value.bounce, knob.initial.bounce],
         ]
+
+      if (knob.kind === "easing")
+        return knob.value.map((value, index): [string, number, number] => [
+          `${knob.id}.${index}`,
+          value,
+          knob.initial[index],
+        ])
 
       if (knob.kind === "toggle") return [[knob.id, Number(knob.value), Number(knob.initial)]]
 
