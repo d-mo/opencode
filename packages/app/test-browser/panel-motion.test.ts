@@ -329,20 +329,21 @@ it("Low movement opens with the layout first, then shifts the panel in on a spri
   expect(panelsMoving()).toBe(false)
 })
 
-it("Low movement closes in reverse, keeping the layout until the panel has faded down", async () => {
+it("Low movement closes in reverse: the layout closes at once and the panel fades out over it, then hides", async () => {
   const panel = setupLow(true)
   panel.setOpen(false)
+  expect(panel.painted.width).toBe(0)
+  expect(panel.motion.present()).toBe(true)
+  expect(panel.motion.leaving()).toBe(true)
   await tick()
 
   const [shift, fade] = panel.played
   expect(shift.keyframes.transform).toEqual(["none", "translateX(-10px)"])
   expect(fade.keyframes.opacity).toEqual(["1", "0.15"])
-  expect(panel.painted.width).toBe(200)
-  expect(panel.motion.present()).toBe(true)
 
   await land(panel.played)
-  expect(panel.painted.width).toBe(0)
   expect(panel.motion.present()).toBe(false)
+  expect(panel.motion.leaving()).toBe(false)
   expect(panel.closed).toHaveLength(1)
 })
 
@@ -381,7 +382,8 @@ it("swaps Kit's knobs for Low movement's while its mode is on", () => {
 
   expect(shown()).toEqual(["Spring", "Motion"])
   setLow(true)
-  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Layout", "Layout open", "Layout close"])
+  // Layout ships Off, which hides its two springs.
+  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Layout"])
   setLow(false)
   expect(shown()).toEqual(["Spring", "Motion"])
 })

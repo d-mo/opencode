@@ -1,4 +1,4 @@
-import { createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js"
+import { batch, createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js"
 import { frameLoop, prefersReducedMotion, Spring, type DurationOptions } from "@opencode/ui/motion"
 import { motionTuning } from "@opencode/ui/motion-tuning"
 
@@ -75,7 +75,7 @@ const lowLayout = motionTuning.choice("sidebars.low.layout", {
   label: "Layout",
   group,
   when: low,
-  value: "flip",
+  value: "off",
   labels: { flip: "Glide (FLIP)", width: "Width", off: "Off" },
 })
 
@@ -132,6 +132,8 @@ export function createPanelMotion(input: {
   resize?: () => HTMLElement | null | undefined
 }) {
   const [present, setPresent] = createSignal(input.open())
+  // A low-movement close in flight: the layout has closed, and the panel fades out over it at its open size.
+  const [leaving, setLeaving] = createSignal(false)
   // Percent closed, so the spring's rest threshold stays well under a pixel.
   const motion = new Spring(input.open() ? 0 : 100)
   let stop: (() => void) | undefined
@@ -153,16 +155,19 @@ export function createPanelMotion(input: {
   const settle = () => {
     stop?.()
     stop = undefined
-    fades.forEach((animation) => animation.cancel())
-    fades = []
     fly(false)
     const queued = landed
     landed = []
 
-    if (!input.open()) {
-      setPresent(false)
-      input.onClosed?.()
-    }
+    batch(() => {
+      if (!input.open()) setPresent(false)
+      setLeaving(false)
+    })
+    // After the panel is hidden, so dropping the animations' held end state never shows it at full opacity.
+    fades.forEach((animation) => animation.cancel())
+    fades = []
+
+    if (!input.open()) input.onClosed?.()
 
     queued.forEach((run) => run())
   }
@@ -190,6 +195,7 @@ export function createPanelMotion(input: {
           stop = undefined
           fades.forEach((animation) => animation.cancel())
           fades = []
+          setLeaving(false)
           fly(false)
           motion.snap(target)
           paint()
@@ -225,16 +231,17 @@ export function createPanelMotion(input: {
   )
 
   /**
-   * Opens with the layout first, then the panel shifts in and fades up; closes in reverse, with the layout last. A
-   * reversal mid-flight turns around from where the panel is.
+   * The layout moves at once; the panel then shifts in and fades up, or on a close shifts out and fades down over the
+   * closed layout at its open size before it hides. A reversal mid-flight turns around from where the panel is.
    */
   const fade = (open: boolean) => {
     stop?.()
     stop = undefined
-    glide(true, () => {
-      motion.snap(0)
+    glide(open, () => {
+      motion.snap(open ? 0 : 100)
       paint()
     })
+    setLeaving(!open)
     fly(true)
     // Deferred so a panel that mounts with this open exists before it animates; microtasks run before the next paint.
     queueMicrotask(() => {
@@ -242,7 +249,7 @@ export function createPanelMotion(input: {
 
       if (input.open() !== open) return
 
-      if (!element?.animate) return open ? settle() : snap(false)
+      if (!element?.animate) return settle()
 
       const x = (input.offset ?? 0) * (element.matches(":dir(rtl)") ? -1 : 1)
       const away = { transform: `translateX(${x}px)`, opacity: `${faded}` }
@@ -260,7 +267,7 @@ export function createPanelMotion(input: {
       ]
       const current = fades
       void Promise.all(current.map((animation) => animation.finished)).then(
-        () => current === fades && (open ? settle() : glide(false, () => snap(false))),
+        () => current === fades && settle(),
         () => undefined,
       )
     })
@@ -323,6 +330,7 @@ export function createPanelMotion(input: {
 
   return {
     present,
+    leaving,
     sync: (open: boolean) => {
       if (flying && input.open() === open) return snap(open)
       snapTo = open
@@ -365,13 +373,13 @@ export function guardClosingFocus(input: {
   })
 }
 
-/** A spring sampled per 60 Hz frame into a CSS `linear()` easing, ending once within 0.5% of rest. */
+/** A spring sampled per 60 Hz frame into a CSS `linear()` easing. It ends once within 0.5% of rest, a twentieth of a
+ * pixel on these shifts. */
 function springEasing(tuning: DurationOptions) {
   const spring = Spring.fromDuration(0, tuning).set(1)
   const points = [0]
 
-  while (points.length < 240 && (Math.abs(1 - points.at(-1)!) > 0.005 || Math.abs(spring.velocity) > 0.05))
-    points.push(Math.round(spring.step(1 / 60) * 1000) / 1000)
+  while (points.length < 240 && points.at(-1)! < 0.995) points.push(Math.round(spring.step(1 / 60) * 1000) / 1000)
   points[points.length - 1] = 1
 
   return { duration: ((points.length - 1) * 1000) / 60, easing: `linear(${points.join(", ")})` }

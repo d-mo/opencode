@@ -131,6 +131,8 @@ export default function Layout(props: ParentProps) {
                 ref={(element) => setState("tabsPanel", element)}
                 class="absolute inset-0 overflow-hidden [contain:layout_style_paint]"
                 classList={{ "[content-visibility:hidden]": !sidebarMotion.present() }}
+                // A low-movement close keeps the open width over main while it fades out (the start edge holds).
+                style={{ width: sidebarMotion.leaving() ? `${state.tabsWidth}px` : undefined }}
               >
                 <div
                   ref={(element) => setState("tabsMount", element)}
@@ -145,6 +147,7 @@ export default function Layout(props: ParentProps) {
               <div
                 class="absolute inset-0 z-20"
                 classList={{ hidden: preferences.appearance.sidebarOpen() || !sidebarMotion.present() }}
+                style={{ width: sidebarMotion.leaving() ? `${state.tabsWidth}px` : undefined }}
               />
               <Show when={preferences.appearance.sidebarOpen()}>
                 <ResizeHandle

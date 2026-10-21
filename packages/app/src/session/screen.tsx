@@ -474,10 +474,13 @@ function SessionScreenContent(props: {
               data-slot="session-side-panel-presence"
               class="z-0 min-w-0 h-full overflow-visible"
               classList={{
-                "relative flex-1": sideMotion.present(),
+                "relative flex-1": sideMotion.present() && !sideMotion.leaving(),
+                // A low-movement close fades the panel out over the widened chat, at its open width.
+                "absolute inset-y-0 end-0 z-20": sideMotion.leaving(),
                 // Out of the row, so a closed panel takes no space or gap.
                 "absolute inset-y-0 end-0 w-0 [content-visibility:hidden]": !sideMotion.present(),
               }}
+              style={{ width: sideMotion.leaving() ? screen.side.contentWidth() : undefined }}
             >
               <div
                 data-slot="session-side-panel-content"
