@@ -1,4 +1,4 @@
-import { batch, createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js"
+import { createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js"
 import { frameLoop, prefersReducedMotion, Spring, type DurationOptions } from "@opencode/ui/motion"
 import { motionTuning } from "@opencode/ui/motion-tuning"
 
@@ -75,7 +75,7 @@ const lowLayout = motionTuning.choice("sidebars.low.layout", {
   label: "Layout",
   group,
   when: low,
-  value: "off",
+  value: "flip",
   labels: { flip: "Glide (FLIP)", width: "Width", off: "Off" },
 })
 
@@ -132,8 +132,6 @@ export function createPanelMotion(input: {
   resize?: () => HTMLElement | null | undefined
 }) {
   const [present, setPresent] = createSignal(input.open())
-  // A low-movement close in flight: the layout has closed, and the panel fades out over it at its open size.
-  const [leaving, setLeaving] = createSignal(false)
   // Percent closed, so the spring's rest threshold stays well under a pixel.
   const motion = new Spring(input.open() ? 0 : 100)
   let stop: (() => void) | undefined
@@ -159,11 +157,7 @@ export function createPanelMotion(input: {
     const queued = landed
     landed = []
 
-    batch(() => {
-      if (!input.open()) setPresent(false)
-      setLeaving(false)
-    })
-    // After the panel is hidden, so dropping the animations' held end state never shows it at full opacity.
+    if (!input.open()) setPresent(false)
     fades.forEach((animation) => animation.cancel())
     fades = []
 
@@ -195,7 +189,6 @@ export function createPanelMotion(input: {
           stop = undefined
           fades.forEach((animation) => animation.cancel())
           fades = []
-          setLeaving(false)
           fly(false)
           motion.snap(target)
           paint()
@@ -207,7 +200,8 @@ export function createPanelMotion(input: {
 
         if (now || prefersReducedMotion() || (!low() && style() === "instant")) return snap(open)
 
-        if (low()) return fade(open)
+        // Low movement closes at once; only its neighbours glide into place.
+        if (low()) return open ? fade() : glide(false, () => snap(false))
 
         const tuning = spring()
         motion.omega = (2 * Math.PI) / tuning.duration
@@ -230,39 +224,30 @@ export function createPanelMotion(input: {
     ),
   )
 
-  /**
-   * The layout moves at once; the panel then shifts in and fades up, or on a close shifts out and fades down over the
-   * closed layout at its open size before it hides. A reversal mid-flight turns around from where the panel is.
-   */
-  const fade = (open: boolean) => {
+  /** The layout opens at once, gliding its neighbours into place; the panel then shifts in and fades up. */
+  const fade = () => {
     stop?.()
     stop = undefined
-    glide(open, () => {
-      motion.snap(open ? 0 : 100)
+    glide(true, () => {
+      motion.snap(0)
       paint()
     })
-    setLeaving(!open)
     fly(true)
     // Deferred so a panel that mounts with this open exists before it animates; microtasks run before the next paint.
     queueMicrotask(() => {
       const element = input.element?.()
 
-      if (input.open() !== open) return
+      if (!input.open()) return
 
       if (!element?.animate) return settle()
 
       const x = (input.offset ?? 0) * (element.matches(":dir(rtl)") ? -1 : 1)
-      const away = { transform: `translateX(${x}px)`, opacity: `${faded}` }
-      const rest = { transform: "none", opacity: "1" }
-      const target = open ? rest : away
-      const start = fades.length > 0 ? getComputedStyle(element) : open ? away : rest
-      const tuning = lowShift()
       fades.forEach((animation) => animation.cancel())
       fades = [
-        element.animate({ transform: [start.transform, target.transform] }, { ...springEasing(tuning), fill: "both" }),
+        element.animate({ transform: [`translateX(${x}px)`, "none"] }, springEasing(lowShift())),
         element.animate(
-          { opacity: [start.opacity, target.opacity] },
-          { duration: lowFadeDuration() * 1000, easing: `cubic-bezier(${lowFade().join(", ")})`, fill: "both" },
+          { opacity: [faded, 1] },
+          { duration: lowFadeDuration() * 1000, easing: `cubic-bezier(${lowFade().join(", ")})` },
         ),
       ]
       const current = fades
@@ -274,8 +259,8 @@ export function createPanelMotion(input: {
   }
 
   /**
-   * Runs `change`, which moves the layout, then glides the neighbours from their old boxes to the new ones. The new
-   * boxes are read in a ResizeObserver pass, after the screen's own observers have settled their sizes for the change.
+   * Runs `change`, which moves the layout, then glides the neighbours from their old boxes to the new ones, measured
+   * on either side of the change and started in the same frame.
    */
   const glide = (open: boolean, change: () => void) => {
     const mode = lowLayout()
@@ -293,30 +278,19 @@ export function createPanelMotion(input: {
     change()
 
     if (before.length === 0 && !box) return
-    const timing = springEasing(open ? lowLayoutOpen() : lowLayoutClose())
+    const timing = layoutEasing(open ? lowLayoutOpen() : lowLayoutClose())
 
-    const observer = new ResizeObserver(() => {
-      observer.disconnect()
-      before.forEach(({ element, anchor, x }) => {
-        const dx = x - anchorX(element, anchor)
+    before.forEach(({ element, anchor, x }) => {
+      const dx = x - anchorX(element, anchor)
 
-        if (Math.abs(dx) > 0.5)
-          element.animate(
-            { transform: [`translateX(${dx}px)`, "none"] },
-            { ...timing, composite: "add", fill: "backwards" },
-          )
-      })
-
-      if (!box || width === undefined) return
-      const to = box.getBoundingClientRect().width
-
-      if (Math.abs(to - width) > 0.5)
-        box.animate({ width: [`${width}px`, `${to}px`] }, { ...timing, fill: "backwards" })
+      if (Math.abs(dx) > 0.5)
+        element.animate({ transform: [`translateX(${dx}px)`, "none"] }, { ...timing, composite: "add" })
     })
 
-    before.forEach(({ element }) => observer.observe(element))
+    if (!box || width === undefined) return
+    const to = box.getBoundingClientRect().width
 
-    if (box) observer.observe(box)
+    if (Math.abs(to - width) > 0.5) box.animate({ width: [`${width}px`, `${to}px`] }, timing)
   }
 
   // Repaints at rest when the open size changes, e.g. a resize drag or a window resize.
@@ -330,7 +304,6 @@ export function createPanelMotion(input: {
 
   return {
     present,
-    leaving,
     sync: (open: boolean) => {
       if (flying && input.open() === open) return snap(open)
       snapTo = open
@@ -380,6 +353,23 @@ function springEasing(tuning: DurationOptions) {
   const points = [0]
 
   while (points.length < 240 && points.at(-1)! < 0.995) points.push(Math.round(spring.step(1 / 60) * 1000) / 1000)
+  points[points.length - 1] = 1
+
+  return { duration: ((points.length - 1) * 1000) / 60, easing: `linear(${points.join(", ")})` }
+}
+
+/** A layout spring sampled per 60 Hz frame into `linear()`, until it rests within 0.5% and nearly still. */
+function layoutEasing(tuning: DurationOptions) {
+  const spring = Spring.fromDuration(0, tuning).set(1)
+  const points = [0]
+
+  while (points.length < 240) {
+    const y = Math.round(spring.step(1 / 60) * 1000) / 1000
+    points.push(y)
+
+    if (Math.abs(1 - y) < 0.005 && Math.abs(spring.velocity) < 0.05) break
+  }
+
   points[points.length - 1] = 1
 
   return { duration: ((points.length - 1) * 1000) / 60, easing: `linear(${points.join(", ")})` }

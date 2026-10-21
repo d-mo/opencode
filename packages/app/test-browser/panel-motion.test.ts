@@ -318,7 +318,7 @@ it("Low movement opens with the layout first, then shifts the panel in on a spri
     const t = (index + 1) / 60
     expect(point).toBeCloseTo(1 - (1 + omega * t) * Math.exp(-omega * t), 2)
   })
-  expect(fade.keyframes.opacity).toEqual(["0.15", "1"])
+  expect(fade.keyframes.opacity).toEqual([0.15, 1])
   expect(fade.options).toMatchObject({ duration: 180, easing: "cubic-bezier(0.44, 0.75, 0.63, 1.03)" })
   expect(panelsMoving()).toBe(true)
 
@@ -329,37 +329,18 @@ it("Low movement opens with the layout first, then shifts the panel in on a spri
   expect(panelsMoving()).toBe(false)
 })
 
-it("Low movement closes in reverse: the layout closes at once and the panel fades out over it, then hides", async () => {
-  const panel = setupLow(true)
-  panel.setOpen(false)
-  expect(panel.painted.width).toBe(0)
-  expect(panel.motion.present()).toBe(true)
-  expect(panel.motion.leaving()).toBe(true)
-  await tick()
-
-  const [shift, fade] = panel.played
-  expect(shift.keyframes.transform).toEqual(["none", "translateX(-10px)"])
-  expect(fade.keyframes.opacity).toEqual(["1", "0.15"])
-
-  await land(panel.played)
-  expect(panel.motion.present()).toBe(false)
-  expect(panel.motion.leaving()).toBe(false)
-  expect(panel.closed).toHaveLength(1)
-})
-
-it("Low movement turns around mid-flight, cancelling the first direction", async () => {
-  const panel = setupLow(true)
-  panel.setOpen(false)
-  await tick()
+it("Low movement closes at once, cancelling an opening in flight", async () => {
+  const panel = setupLow(false)
   panel.setOpen(true)
   await tick()
+  panel.setOpen(false)
 
-  expect(panel.played).toHaveLength(4)
-  expect(panel.played.slice(0, 2).every((animation) => animation.cancelled)).toBe(true)
-  expect(panel.played[2].keyframes.transform?.at(-1)).toBe("none")
-  await land(panel.played)
-  expect(panel.motion.present()).toBe(true)
-  expect(panel.closed).toEqual([])
+  expect(panel.painted.width).toBe(0)
+  expect(panel.motion.present()).toBe(false)
+  expect(panel.closed).toHaveLength(1)
+  expect(panel.played).toHaveLength(2)
+  expect(panel.played.every((animation) => animation.cancelled)).toBe(true)
+  expect(panelsMoving()).toBe(false)
 })
 
 it("Low movement snaps under reduced motion", () => {
@@ -382,8 +363,7 @@ it("swaps Kit's knobs for Low movement's while its mode is on", () => {
 
   expect(shown()).toEqual(["Spring", "Motion"])
   setLow(true)
-  // Layout ships Off, which hides its two springs.
-  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Layout"])
+  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Layout", "Layout open", "Layout close"])
   setLow(false)
   expect(shown()).toEqual(["Spring", "Motion"])
 })
