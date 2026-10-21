@@ -47,7 +47,7 @@ import { usePlatform } from "@/runtime/platform/platform"
 import { useServer } from "@/runtime/server/current"
 import { SessionReviewToggle } from "./header/session-header-actions"
 import { createTimelineCache } from "./timeline/cache"
-import { createPanelMotion, replayPanelToggle } from "@/shell/panel-motion"
+import { createPanelMotion, lowPanelShift, replayPanelToggle } from "@/shell/panel-motion"
 
 export function SessionScreenView(props: { session: SessionModel }) {
   // The timeline cache captures its owner when created, so link handling must be provided above it.
@@ -173,7 +173,7 @@ function SessionScreenContent(props: {
       chat.style.width = closed === 0 ? open : `calc(${open} + (100% - ${open}) * ${closed})`
     },
     element: () => sidePresence,
-    offset: 12,
+    offset: lowPanelShift,
     neighbours: () => [[chat, "center"]],
     resize: () => chat,
   })

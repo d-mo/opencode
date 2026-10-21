@@ -51,7 +51,7 @@ export default function Layout(props: ParentProps) {
       paintCollapsedSlots(closed)
     },
     element: () => state.tabsPanel,
-    offset: -10,
+    offset: () => -10,
     neighbours: () => [
       [document.querySelector<HTMLElement>('[data-slot="session-chat-panel"]'), "center"],
       [document.querySelector<HTMLElement>('[data-slot="session-side-panel-presence"]'), "start"],

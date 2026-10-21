@@ -285,7 +285,7 @@ function setupLow(initial: boolean) {
       },
       onClosed: () => closed.push(time),
       element: () => element,
-      offset: -10,
+      offset: () => -10,
     })
   })
 
@@ -363,7 +363,7 @@ it("swaps Kit's knobs for Low movement's while its mode is on", () => {
 
   expect(shown()).toEqual(["Spring", "Motion"])
   setLow(true)
-  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Layout", "Layout open", "Layout close"])
+  expect(shown()).toEqual(["Movement", "Fade", "Fade duration", "Panel shift", "Layout", "Layout open", "Layout close"])
   setLow(false)
   expect(shown()).toEqual(["Spring", "Motion"])
 })

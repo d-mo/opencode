@@ -69,6 +69,18 @@ const lowFadeDuration = motionTuning.number("sidebars.low.fadeDuration", {
   time: "duration",
 })
 
+/** How far the right side panel shifts in from its edge on a low-movement open, in pixels. */
+export const lowPanelShift = motionTuning.number("sidebars.low.panelShift", {
+  label: "Panel shift",
+  group,
+  when: low,
+  value: 12,
+  min: 0,
+  max: 48,
+  step: 1,
+  unit: "px",
+})
+
 // "flip" translates the neighbours from their old box on the compositor; "width" animates the resized box's real width,
 // re-wrapping its content each frame.
 const lowLayout = motionTuning.choice("sidebars.low.layout", {
@@ -125,7 +137,7 @@ export function createPanelMotion(input: {
    * the inline-start edge; mirrored in RTL).
    */
   element?: Accessor<HTMLElement | undefined>
-  offset?: number
+  offset?: () => number
   /** Low movement: the boxes beside the panel that glide into place when its layout changes, and how. */
   neighbours?: () => Array<[HTMLElement | null | undefined, Anchor]>
   /** Low movement, width layout: the box whose real width animates. */
@@ -241,7 +253,7 @@ export function createPanelMotion(input: {
 
       if (!element?.animate) return settle()
 
-      const x = (input.offset ?? 0) * (element.matches(":dir(rtl)") ? -1 : 1)
+      const x = (input.offset?.() ?? 0) * (element.matches(":dir(rtl)") ? -1 : 1)
       fades.forEach((animation) => animation.cancel())
       fades = [
         element.animate({ transform: [`translateX(${x}px)`, "none"] }, springEasing(lowShift())),
