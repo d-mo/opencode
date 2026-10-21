@@ -294,27 +294,23 @@ function SessionSurfaceState(props: SessionPreviewProps & { onReset: () => void 
                         )}
                       </Show>
                     }
-                    composer={
-                      <div class="relative">
-                        <SessionActivityChips
-                          subagents={props.activity?.subagents ?? []}
-                          shells={props.activity?.shells ?? []}
-                          onOpen={(item) =>
-                            props.activity?.onOpen
-                              ? props.activity.onOpen(item)
-                              : setState("activity", `Opened ${item.label ?? item.key}`)
-                          }
-                          onStop={(item) =>
-                            props.activity?.onStop
-                              ? props.activity.onStop(item)
-                              : setState("activity", `Stopped ${item.label ?? item.key}`)
-                          }
-                        />
-                        <div class="relative z-10">
-                          <Composer model={prompt.controller} borderUnderlay />
-                        </div>
-                      </div>
+                    above={
+                      <SessionActivityChips
+                        subagents={props.activity?.subagents ?? []}
+                        shells={props.activity?.shells ?? []}
+                        onOpen={(item) =>
+                          props.activity?.onOpen
+                            ? props.activity.onOpen(item)
+                            : setState("activity", `Opened ${item.label ?? item.key}`)
+                        }
+                        onStop={(item) =>
+                          props.activity?.onStop
+                            ? props.activity.onStop(item)
+                            : setState("activity", `Stopped ${item.label ?? item.key}`)
+                        }
+                      />
                     }
+                    composer={<Composer model={prompt.controller} borderUnderlay />}
                   />
                 </section>
                 <Show when={state.reviewOpened}>

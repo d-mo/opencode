@@ -1,6 +1,12 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
+  "experiment.activityChip": "Activity chip",
+  "experiment.activityChip.today": "Today",
+  "experiment.activityChip.orb": "CSS orb",
+  "experiment.chipCorners": "Chip corners",
+  "experiment.chipCorners.capsule": "Capsule",
+  "experiment.chipCorners.composer": "Composer",
   ...DESKTOP_NATIVE_ENGLISH,
   "session.location.unavailable": "Session location unavailable",
   "session.location.description": "Choose another directory to continue this session.",
